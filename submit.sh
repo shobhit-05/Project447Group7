@@ -17,6 +17,11 @@ python src/myprogram.py test --work_dir work --test_data example/input.txt --tes
 # submit docker file
 cp Dockerfile submit/Dockerfile
 
+# submit requirements.txt if it exists
+if [ -f requirements.txt ]; then
+    cp requirements.txt submit/requirements.txt
+fi
+
 # submit source code
 cp -r src submit/src
 

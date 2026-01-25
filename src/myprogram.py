@@ -2,63 +2,421 @@
 import os
 import string
 import random
+import pickle
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import Dataset, DataLoader
 from argparse import ArgumentParser, ArgumentDefaultsHelpFormatter
+from tqdm import tqdm
+import numpy as np
+import urllib.request
+import json
+
+
+class CharDataset(Dataset):
+    """Dataset for character-level language modeling"""
+    def __init__(self, text, char_to_idx, seq_length=100):
+        self.text = text
+        self.char_to_idx = char_to_idx
+        self.seq_length = seq_length
+        
+    def __len__(self):
+        return len(self.text) - self.seq_length
+    
+    def __getitem__(self, idx):
+        seq = self.text[idx:idx+self.seq_length]
+        target = self.text[idx+self.seq_length]
+        seq_tensor = torch.tensor([self.char_to_idx.get(c, 0) for c in seq], dtype=torch.long)
+        target_tensor = torch.tensor(self.char_to_idx.get(target, 0), dtype=torch.long)
+        return seq_tensor, target_tensor
+
+
+class LSTMModel(nn.Module):
+    """LSTM-based character-level language model"""
+    def __init__(self, vocab_size, embedding_dim=128, hidden_dim=256, num_layers=2, dropout=0.2):
+        super(LSTMModel, self).__init__()
+        self.vocab_size = vocab_size
+        self.embedding_dim = embedding_dim
+        self.hidden_dim = hidden_dim
+        self.num_layers = num_layers
+        
+        self.embedding = nn.Embedding(vocab_size, embedding_dim)
+        self.lstm = nn.LSTM(embedding_dim, hidden_dim, num_layers, 
+                           batch_first=True, dropout=dropout if num_layers > 1 else 0)
+        self.fc = nn.Linear(hidden_dim, vocab_size)
+        self.dropout = nn.Dropout(dropout)
+        
+    def forward(self, x, hidden=None):
+        embedded = self.embedding(x)
+        lstm_out, hidden = self.lstm(embedded, hidden)
+        # Use the last output
+        lstm_out = lstm_out[:, -1, :]
+        lstm_out = self.dropout(lstm_out)
+        output = self.fc(lstm_out)
+        return output, hidden
+    
+    def init_hidden(self, batch_size, device):
+        h0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(device)
+        c0 = torch.zeros(self.num_layers, batch_size, self.hidden_dim).to(device)
+        return (h0, c0)
 
 
 class MyModel:
     """
-    This is a starter model to get you started. Feel free to modify this file.
+    LSTM-based character prediction model trained on CulturaX dataset
     """
 
+    def __init__(self, vocab_size=None, char_to_idx=None, idx_to_char=None, model=None, device=None):
+        self.device = device if device else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.char_to_idx = char_to_idx if char_to_idx else {}
+        self.idx_to_char = idx_to_char if idx_to_char else {}
+        self.vocab_size = vocab_size if vocab_size else len(self.char_to_idx)
+        self.model = model
+
     @classmethod
-    def load_training_data(cls):
-        # your code here
-        # this particular model doesn't train
-        return []
+    def load_training_data(cls, work_dir='work', use_cache=True, max_examples=100000, hf_token=None):
+        """
+        Load training data. Currently uses Shakespeare text dataset.
+        Can be easily swapped to CulturaX or other datasets later.
+        
+        Args:
+            work_dir: Directory to save cache
+            use_cache: Whether to use cached data if available
+            max_examples: Not used for Shakespeare dataset (kept for compatibility)
+            hf_token: Not used for Shakespeare dataset (kept for compatibility)
+        """
+        # Check for cached data first
+        cache_file = os.path.join(work_dir, 'training_data_cache.txt')
+        if use_cache and os.path.exists(cache_file):
+            print(f"Loading cached training data from {cache_file}...")
+            try:
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    cached_text = f.read()
+                if len(cached_text) >= 200_000:  # Use cache if it has reasonable amount of data
+                    print(f"Using cached data: {len(cached_text):,} characters")
+                    # Truncate to 300k if cache is larger
+                    if len(cached_text) > 300_000:
+                        print(f"Truncating cached data to 300k characters for fast training...")
+                        cached_text = cached_text[:300_000]
+                    return cached_text
+                else:
+                    print("Cached data too small, will re-download...")
+            except Exception as e:
+                print(f"Error reading cache: {e}, will re-download...")
+        
+        # Download Shakespeare dataset
+        shakespeare_url = "https://storage.googleapis.com/download.tensorflow.org/data/shakespeare.txt"
+        print(f"Downloading Shakespeare dataset from {shakespeare_url}...")
+        
+        try:
+            # Download the file
+            with urllib.request.urlopen(shakespeare_url) as response:
+                text = response.read().decode('utf-8')
+            
+            print(f"Downloaded {len(text):,} characters from Shakespeare dataset")
+            
+            # Use only 300k characters for fast training
+            target_chars = 300_000
+            if len(text) > target_chars:
+                print(f"Truncating to {target_chars:,} characters for fast training...")
+                text = text[:target_chars]
+            elif len(text) < target_chars:
+                print(f"Repeating text to reach target of {target_chars:,} characters...")
+                repeat_factor = (target_chars // len(text)) + 1
+                text = text * repeat_factor
+                text = text[:target_chars]  # Trim to exactly target_chars
+            
+            print(f"Total training text length: {len(text):,} characters")
+            
+            # Save to cache for future use
+            os.makedirs(work_dir, exist_ok=True)
+            print(f"Saving data to cache: {cache_file}")
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                f.write(text)
+            print("Cache saved. Future training runs will use this cached data (no re-download needed).")
+            
+            return text
+            
+        except Exception as e:
+            print(f"Error downloading Shakespeare dataset: {e}")
+            print("\nTroubleshooting tips:")
+            print("1. Ensure you have internet connection")
+            print("2. Check if the URL is accessible")
+            print("3. Try downloading manually and placing in work/training_data_cache.txt")
+            raise e
 
     @classmethod
     def load_test_data(cls, fname):
-        # your code here
+        """Load test data from file"""
         data = []
-        with open(fname) as f:
+        with open(fname, 'r', encoding='utf-8') as f:
             for line in f:
-                inp = line[:-1]  # the last character is a newline
+                inp = line.rstrip('\n\r')  # Remove trailing newline
                 data.append(inp)
         return data
 
     @classmethod
     def write_pred(cls, preds, fname):
-        with open(fname, 'wt') as f:
+        """Write predictions to file - each line should have exactly 3 characters"""
+        with open(fname, 'wt', encoding='utf-8') as f:
             for p in preds:
-                f.write('{}\n'.format(p))
+                # Ensure prediction is exactly 3 characters, no newlines
+                pred_clean = str(p).replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')[:3]
+                # Pad to 3 if needed
+                pred_clean = pred_clean.ljust(3, ' ')
+                f.write('{}\n'.format(pred_clean))
+
+    def build_vocab(self, text):
+        """Build character vocabulary from text, excluding newlines"""
+        # Get all unique characters, but exclude newlines and other control chars
+        # We'll replace newlines with spaces during training
+        text_no_newlines = text.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+        unique_chars = sorted(set(text_no_newlines))
+        # Create mappings
+        self.char_to_idx = {char: idx for idx, char in enumerate(unique_chars)}
+        self.idx_to_char = {idx: char for char, idx in self.char_to_idx.items()}
+        self.vocab_size = len(self.char_to_idx)
+        print(f"Vocabulary size: {self.vocab_size} (newlines excluded)")
 
     def run_train(self, data, work_dir):
-        # your code here
-        pass
+        """Train the LSTM model"""
+        if isinstance(data, str):
+            text = data
+        else:
+            text = ''.join(data)
+        
+        # Build vocabulary
+        print("Building vocabulary...")
+        self.build_vocab(text)
+        
+        # Convert text to indices (replace newlines with spaces)
+        print("Converting text to indices...")
+        text_clean = text.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+        text_indices = [self.char_to_idx.get(c, 0) for c in text_clean]
+        
+        # Create dataset
+        print("Creating dataset...")
+        seq_length = 100  # Use longer sequences for better learning
+        dataset = CharDataset(text_indices, self.char_to_idx, seq_length)
+        
+        # Use reasonable batch size
+        batch_size = 64
+        # Use more training samples - but limit to reasonable amount for speed
+        max_samples = min(len(dataset), 20000)  # Use 20k samples for better learning
+        if len(dataset) > max_samples:
+            print(f"Using subset of {max_samples:,} samples (out of {len(dataset):,}) for training")
+            indices = torch.randperm(len(dataset))[:max_samples]
+            dataset = torch.utils.data.Subset(dataset, indices)
+        
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0)
+        
+        # Initialize model with reasonable size
+        print("Initializing model...")
+        self.model = LSTMModel(
+            vocab_size=self.vocab_size,
+            embedding_dim=128,
+            hidden_dim=256,
+            num_layers=2,
+            dropout=0.2
+        ).to(self.device)
+        
+        # Training setup
+        criterion = nn.CrossEntropyLoss()
+        optimizer = optim.Adam(self.model.parameters(), lr=0.001)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=2)
+        
+        # Training loop with early stopping (but not too aggressive)
+        num_epochs = 5
+        min_loss = float('inf')
+        patience = 3  # More patience
+        patience_counter = 0
+        
+        print(f"Training for up to {num_epochs} epochs on {self.device}...")
+        print("(Early stopping enabled - will stop if loss doesn't improve for 3 epochs)")
+        
+        self.model.train()
+        for epoch in range(num_epochs):
+            total_loss = 0
+            num_batches = 0
+            
+            pbar = tqdm(dataloader, desc=f"Epoch {epoch+1}/{num_epochs}")
+            for batch_idx, (seq, target) in enumerate(pbar):
+                seq = seq.to(self.device)
+                target = target.to(self.device)
+                
+                optimizer.zero_grad()
+                hidden = self.model.init_hidden(seq.size(0), self.device)
+                output, _ = self.model(seq, hidden)
+                loss = criterion(output, target)
+                loss.backward()
+                
+                # Gradient clipping
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+                
+                optimizer.step()
+                
+                total_loss += loss.item()
+                num_batches += 1
+                
+                # Update progress bar
+                if batch_idx % 50 == 0:
+                    pbar.set_postfix({'loss': f'{loss.item():.4f}', 'avg_loss': f'{total_loss/num_batches:.4f}'})
+            
+            avg_loss = total_loss / num_batches
+            scheduler.step(avg_loss)
+            current_lr = optimizer.param_groups[0]['lr']
+            print(f"Epoch {epoch+1} completed. Average loss: {avg_loss:.4f}, LR: {current_lr:.6f}")
+            
+            # Early stopping (but only if loss really plateaus)
+            if avg_loss < min_loss:
+                min_loss = avg_loss
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                if patience_counter >= patience:
+                    print(f"Early stopping: loss hasn't improved for {patience} epochs")
+                    break
+            
+            # Don't stop too early - ensure we train at least 3 epochs
+            if epoch < 2 and avg_loss < 0.1:
+                print(f"Loss is low but continuing training to ensure model learns properly...")
+        
+        print("Training completed!")
 
     def run_pred(self, data):
-        # your code here
+        """Generate predictions for test data"""
+        self.model.eval()
         preds = []
-        all_chars = string.ascii_letters
-        for inp in data:
-            # this model just predicts a random character each time
-            top_guesses = [random.choice(all_chars) for _ in range(3)]
-            preds.append(''.join(top_guesses))
+        
+        with torch.no_grad():
+            for inp in tqdm(data, desc="Generating predictions"):
+                # Convert input to indices
+                seq = [self.char_to_idx.get(c, 0) for c in inp]
+                if len(seq) == 0:
+                    # Fallback if empty input - use common characters
+                    top_guesses = [' ', 'a', 'e']
+                    preds.append(''.join(top_guesses))
+                    continue
+                
+                # Use last portion of sequence for context (LSTM benefits from recent context)
+                max_len = 200
+                if len(seq) > max_len:
+                    seq = seq[-max_len:]
+                
+                # Pad sequence to minimum length if needed
+                min_seq_len = 10
+                if len(seq) < min_seq_len:
+                    # Pad with first character or space
+                    pad_char = seq[0] if len(seq) > 0 else 0
+                    seq = [pad_char] * (min_seq_len - len(seq)) + seq
+                
+                seq_tensor = torch.tensor([seq], dtype=torch.long).to(self.device)
+                
+                # Get prediction
+                hidden = self.model.init_hidden(1, self.device)
+                output, _ = self.model(seq_tensor, hidden)
+                probs = torch.softmax(output[0], dim=0)
+                
+                # Get top 3 predictions - ensure they are distinct and exclude newlines
+                top_chars = []
+                seen_chars = set()
+                top_probs, top_indices = torch.topk(probs, min(50, self.vocab_size))  # Get more candidates
+                
+                # Filter out newline characters and other control characters
+                for idx in top_indices:
+                    char = self.idx_to_char.get(idx.item(), ' ')
+                    # Skip newlines, carriage returns, and other control characters
+                    if char in ['\n', '\r', '\t']:
+                        continue
+                    if char not in seen_chars:
+                        top_chars.append(char)
+                        seen_chars.add(char)
+                        if len(top_chars) >= 3:
+                            break
+                
+                # Ensure we have exactly 3 characters (pad with space if needed)
+                while len(top_chars) < 3:
+                    # Try to find a character not already used (excluding newlines)
+                    for char in [' ', 'a', 'e', 'i', 'o', 'u', 't', 'n', 's', 'r', 'h', 'l', 'd', 'c', 'm', 'f', 'p', 'g', 'w', 'y', 'b', 'v', 'k', 'x', 'j', 'q', 'z']:
+                        if char not in seen_chars and char not in ['\n', '\r', '\t']:
+                            top_chars.append(char)
+                            seen_chars.add(char)
+                            break
+                    else:
+                        # If all common chars are used, just use space
+                        top_chars.append(' ')
+                
+                # Take exactly 3 and join - ensure no newlines
+                pred_str = ''.join(top_chars[:3]).replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+                # Ensure we have exactly 3 characters after replacement
+                if len(pred_str) < 3:
+                    pred_str = pred_str.ljust(3, ' ')
+                preds.append(pred_str[:3])  # Force exactly 3 chars
+        
         return preds
 
     def save(self, work_dir):
-        # your code here
-        # this particular model has nothing to save, but for demonstration purposes we will save a blank file
-        with open(os.path.join(work_dir, 'model.checkpoint'), 'wt') as f:
-            f.write('dummy save')
+        """Save model and vocabulary"""
+        checkpoint = {
+            'model_state_dict': self.model.state_dict(),
+            'char_to_idx': self.char_to_idx,
+            'idx_to_char': self.idx_to_char,
+            'vocab_size': self.vocab_size,
+            'model_config': {
+                'embedding_dim': self.model.embedding_dim,
+                'hidden_dim': self.model.hidden_dim,
+                'num_layers': self.model.num_layers,
+                'dropout': 0.2
+            }
+        }
+        
+        checkpoint_path = os.path.join(work_dir, 'model.checkpoint')
+        torch.save(checkpoint, checkpoint_path)
+        
+        # Also save vocabulary as JSON for easier inspection
+        vocab_path = os.path.join(work_dir, 'vocab.json')
+        with open(vocab_path, 'w', encoding='utf-8') as f:
+            json.dump(self.char_to_idx, f, ensure_ascii=False, indent=2)
+        
+        print(f"Model saved to {checkpoint_path}")
 
     @classmethod
     def load(cls, work_dir):
-        # your code here
-        # this particular model has nothing to load, but for demonstration purposes we will load a blank file
-        with open(os.path.join(work_dir, 'model.checkpoint')) as f:
-            dummy_save = f.read()
-        return MyModel()
+        """Load model and vocabulary"""
+        checkpoint_path = os.path.join(work_dir, 'model.checkpoint')
+        
+        if not os.path.exists(checkpoint_path):
+            raise FileNotFoundError(f"Model checkpoint not found at {checkpoint_path}")
+        
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        
+        # Reconstruct model
+        config = checkpoint.get('model_config', {
+            'embedding_dim': 128,
+            'hidden_dim': 256,
+            'num_layers': 2,
+            'dropout': 0.2
+        })
+        
+        model = LSTMModel(
+            vocab_size=checkpoint['vocab_size'],
+            **config
+        ).to(device)
+        
+        model.load_state_dict(checkpoint['model_state_dict'])
+        
+        instance = cls(
+            vocab_size=checkpoint['vocab_size'],
+            char_to_idx=checkpoint['char_to_idx'],
+            idx_to_char=checkpoint['idx_to_char'],
+            model=model,
+            device=device
+        )
+        
+        print(f"Model loaded from {checkpoint_path}")
+        return instance
 
 
 if __name__ == '__main__':
@@ -67,6 +425,12 @@ if __name__ == '__main__':
     parser.add_argument('--work_dir', help='where to save', default='work')
     parser.add_argument('--test_data', help='path to test data', default='example/input.txt')
     parser.add_argument('--test_output', help='path to write test predictions', default='pred.txt')
+    parser.add_argument('--max_examples', type=int, default=100000, 
+                       help='Maximum number of examples (for future use with other datasets)')
+    parser.add_argument('--no_cache', action='store_true', 
+                       help='Disable using cached training data (force re-download)')
+    parser.add_argument('--hf_token', type=str, default=None,
+                       help='Hugging Face token (for future use with HF datasets)')
     args = parser.parse_args()
 
     random.seed(0)
@@ -78,7 +442,13 @@ if __name__ == '__main__':
         print('Instatiating model')
         model = MyModel()
         print('Loading training data')
-        train_data = MyModel.load_training_data()
+        print(f'Max examples to process: {args.max_examples:,}')
+        train_data = MyModel.load_training_data(
+            work_dir=args.work_dir, 
+            use_cache=not args.no_cache,
+            max_examples=args.max_examples,
+            hf_token=args.hf_token
+        )
         print('Training')
         model.run_train(train_data, args.work_dir)
         print('Saving model')

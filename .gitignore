@@ -1,5 +1,11 @@
 *.py[cod]
+.DS_Store
+.venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
 work/
 output/
+pred.txt
 submit/
 submit.zip

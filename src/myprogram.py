@@ -202,12 +202,16 @@ class MyModel:
         
         # Use reasonable batch size
         batch_size = 64
-        # Use more training samples - but limit to reasonable amount for speed
-        max_samples = min(len(dataset), 20000)  # Use 20k samples for better learning
+        # Use more training samples for better learning
+        # Use at least 30k samples, or all available if less
+        max_samples = min(len(dataset), 30000)  # Increased to 30k for better learning
         if len(dataset) > max_samples:
             print(f"Using subset of {max_samples:,} samples (out of {len(dataset):,}) for training")
+            # Use different random samples each epoch by shuffling
             indices = torch.randperm(len(dataset))[:max_samples]
             dataset = torch.utils.data.Subset(dataset, indices)
+        else:
+            print(f"Using all {len(dataset):,} available samples for training")
         
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=0)
         
@@ -286,75 +290,90 @@ class MyModel:
 
     def run_pred(self, data):
         """Generate predictions for test data"""
-        self.model.eval()
+        # Checkpoint 2: disable LSTM predictions and always return the top
+        # three most frequent English letters for speed and simplicity.
+        # NOTE: The original LSTM inference block is left commented below
+        # in case you want to restore it later.
+        most_frequent = "eta"
         preds = []
-        
-        with torch.no_grad():
-            for inp in tqdm(data, desc="Generating predictions"):
-                # Convert input to indices
-                seq = [self.char_to_idx.get(c, 0) for c in inp]
-                if len(seq) == 0:
-                    # Fallback if empty input - use common characters
-                    top_guesses = [' ', 'a', 'e']
-                    preds.append(''.join(top_guesses))
-                    continue
-                
-                # Use last portion of sequence for context (LSTM benefits from recent context)
-                max_len = 200
-                if len(seq) > max_len:
-                    seq = seq[-max_len:]
-                
-                # Pad sequence to minimum length if needed
-                min_seq_len = 10
-                if len(seq) < min_seq_len:
-                    # Pad with first character or space
-                    pad_char = seq[0] if len(seq) > 0 else 0
-                    seq = [pad_char] * (min_seq_len - len(seq)) + seq
-                
-                seq_tensor = torch.tensor([seq], dtype=torch.long).to(self.device)
-                
-                # Get prediction
-                hidden = self.model.init_hidden(1, self.device)
-                output, _ = self.model(seq_tensor, hidden)
-                probs = torch.softmax(output[0], dim=0)
-                
-                # Get top 3 predictions - ensure they are distinct and exclude newlines
-                top_chars = []
-                seen_chars = set()
-                top_probs, top_indices = torch.topk(probs, min(50, self.vocab_size))  # Get more candidates
-                
-                # Filter out newline characters and other control characters
-                for idx in top_indices:
-                    char = self.idx_to_char.get(idx.item(), ' ')
-                    # Skip newlines, carriage returns, and other control characters
-                    if char in ['\n', '\r', '\t']:
-                        continue
-                    if char not in seen_chars:
-                        top_chars.append(char)
-                        seen_chars.add(char)
-                        if len(top_chars) >= 3:
-                            break
-                
-                # Ensure we have exactly 3 characters (pad with space if needed)
-                while len(top_chars) < 3:
-                    # Try to find a character not already used (excluding newlines)
-                    for char in [' ', 'a', 'e', 'i', 'o', 'u', 't', 'n', 's', 'r', 'h', 'l', 'd', 'c', 'm', 'f', 'p', 'g', 'w', 'y', 'b', 'v', 'k', 'x', 'j', 'q', 'z']:
-                        if char not in seen_chars and char not in ['\n', '\r', '\t']:
-                            top_chars.append(char)
-                            seen_chars.add(char)
-                            break
-                    else:
-                        # If all common chars are used, just use space
-                        top_chars.append(' ')
-                
-                # Take exactly 3 and join - ensure no newlines
-                pred_str = ''.join(top_chars[:3]).replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
-                # Ensure we have exactly 3 characters after replacement
-                if len(pred_str) < 3:
-                    pred_str = pred_str.ljust(3, ' ')
-                preds.append(pred_str[:3])  # Force exactly 3 chars
-        
+        for _ in tqdm(data, desc="Generating predictions"):
+            preds.append(most_frequent)
         return preds
+
+        # self.model.eval()
+        # preds = []
+        #
+        # with torch.no_grad():
+        #     for inp in tqdm(data, desc="Generating predictions"):
+        #         # Clean input - replace newlines with spaces to match training
+        #         inp_clean = inp.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+        #
+        #         # Convert input to indices
+        #         seq = [self.char_to_idx.get(c, 0) for c in inp_clean]
+        #         if len(seq) == 0:
+        #             # Fallback if empty input - use common characters
+        #             top_guesses = [' ', 'a', 'e']
+        #             preds.append(''.join(top_guesses))
+        #             continue
+        #
+        #         # Use sequence length similar to training (100 chars) for better context
+        #         # But use the actual input length if shorter
+        #         seq_length = min(len(seq), 100)
+        #         if len(seq) > seq_length:
+        #             # Use last seq_length characters (most recent context)
+        #             seq = seq[-seq_length:]
+        #         elif len(seq) < seq_length:
+        #             # Pad with spaces (index 0) to match training sequence length
+        #             seq = [0] * (seq_length - len(seq)) + seq
+        #
+        #         seq_tensor = torch.tensor([seq], dtype=torch.long).to(self.device)
+        #
+        #         # Get prediction
+        #         hidden = self.model.init_hidden(1, self.device)
+        #         output, _ = self.model(seq_tensor, hidden)
+        #
+        #         # Apply temperature to avoid collapse (make predictions less confident)
+        #         temperature = 1.2
+        #         logits = output[0] / temperature
+        #         probs = torch.softmax(logits, dim=0)
+        #
+        #         # Get top 3 predictions - ensure they are distinct and exclude newlines
+        #         top_chars = []
+        #         seen_chars = set()
+        #         top_probs, top_indices = torch.topk(probs, min(100, self.vocab_size))  # Get many candidates
+        #
+        #         # Filter out newline characters and other control characters
+        #         for idx in top_indices:
+        #             char = self.idx_to_char.get(idx.item(), ' ')
+        #             # Skip newlines, carriage returns, and other control characters
+        #             if char in ['\n', '\r', '\t']:
+        #                 continue
+        #             if char not in seen_chars:
+        #                 top_chars.append(char)
+        #                 seen_chars.add(char)
+        #                 if len(top_chars) >= 3:
+        #                     break
+        #
+        #         # Ensure we have exactly 3 characters (pad with space if needed)
+        #         while len(top_chars) < 3:
+        #             # Try to find a character not already used (excluding newlines)
+        #             for char in [' ', 'a', 'e', 'i', 'o', 'u', 't', 'n', 's', 'r', 'h', 'l', 'd', 'c', 'm', 'f', 'p', 'g', 'w', 'y', 'b', 'v', 'k', 'x', 'j', 'q', 'z']:
+        #                 if char not in seen_chars and char not in ['\n', '\r', '\t']:
+        #                     top_chars.append(char)
+        #                     seen_chars.add(char)
+        #                     break
+        #             else:
+        #                 # If all common chars are used, just use space
+        #                 top_chars.append(' ')
+        #
+        #         # Take exactly 3 and join - ensure no newlines
+        #         pred_str = ''.join(top_chars[:3]).replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+        #         # Ensure we have exactly 3 characters after replacement
+        #         if len(pred_str) < 3:
+        #             pred_str = pred_str.ljust(3, ' ')
+        #         preds.append(pred_str[:3])  # Force exactly 3 chars
+        #
+        # return preds
 
     def save(self, work_dir):
         """Save model and vocabulary"""

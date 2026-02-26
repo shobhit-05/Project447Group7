@@ -12,6 +12,7 @@ from tqdm import tqdm
 import numpy as np
 import urllib.request
 import json
+from collections import defaultdict, Counter
 
 
 class CharDataset(Dataset):
@@ -64,15 +65,135 @@ class LSTMModel(nn.Module):
 
 class MyModel:
     """
-    LSTM-based character prediction model trained on CulturaX dataset
+    LSTM-based character prediction model trained on CulturaX dataset (end)
+    Uses a dictionary-based fallback for fast test-time prediction.
     """
 
-    def __init__(self, vocab_size=None, char_to_idx=None, idx_to_char=None, model=None, device=None):
+    def __init__(self, vocab_size=None, char_to_idx=None, idx_to_char=None, model=None, device=None, work_dir='work'):
         self.device = device if device else torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.char_to_idx = char_to_idx if char_to_idx else {}
         self.idx_to_char = idx_to_char if idx_to_char else {}
         self.vocab_size = vocab_size if vocab_size else len(self.char_to_idx)
         self.model = model
+        self.work_dir = work_dir
+        self.next_char_map = None
+        self.next_char_map_casefold = None
+        self.global_next_chars = None
+
+    def _get_mapping_text(self):
+        """Load text used to build next-character mapping."""
+        cache_file = os.path.join(self.work_dir, 'training_data_cache.txt')
+        if os.path.exists(cache_file):
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                text = f.read()
+            if text:
+                return text.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+        return ''
+
+    def _build_next_char_mapping_from_text(self, text):
+        """Build Unicode-safe mapping: previous char -> ranked next chars."""
+        text = (text or '').replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+
+        next_by_prev = defaultdict(Counter)
+        next_by_prev_casefold = defaultdict(Counter)
+        global_next = Counter()
+
+        if len(text) >= 2:
+            for i in range(len(text) - 1):
+                prev_char = text[i]
+                next_char = text[i + 1]
+                if next_char in ['\n', '\r', '\t']:
+                    continue
+
+                next_by_prev[prev_char][next_char] += 1
+                next_by_prev_casefold[prev_char.casefold()][next_char] += 1
+                global_next[next_char] += 1
+
+        self.next_char_map = {
+            prev_char: [ch for ch, _ in counter.most_common()]
+            for prev_char, counter in next_by_prev.items()
+        }
+        self.next_char_map_casefold = {
+            prev_char: [ch for ch, _ in counter.most_common()]
+            for prev_char, counter in next_by_prev_casefold.items()
+        }
+        self.global_next_chars = [ch for ch, _ in global_next.most_common()]
+
+    def _load_mapping_from_json(self):
+        """Load precomputed mapping from JSON cache if available."""
+        mapping_path = os.path.join(self.work_dir, 'char_next_map.json')
+        if not os.path.exists(mapping_path):
+            return False
+        try:
+            with open(mapping_path, 'r', encoding='utf-8') as f:
+                payload = json.load(f)
+            self.next_char_map = payload.get('next_char_map', {})
+            self.next_char_map_casefold = payload.get('next_char_map_casefold', {})
+            self.global_next_chars = payload.get('global_next_chars', [])
+            return True
+        except Exception:
+            return False
+
+    def _save_mapping_to_json(self):
+        """Save precomputed mapping to JSON cache for fast test-time loading."""
+        if self.next_char_map is None:
+            return
+        mapping_path = os.path.join(self.work_dir, 'char_next_map.json')
+        payload = {
+            'next_char_map': self.next_char_map,
+            'next_char_map_casefold': self.next_char_map_casefold,
+            'global_next_chars': self.global_next_chars
+        }
+        with open(mapping_path, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, ensure_ascii=False)
+
+    def _ensure_mapping_loaded(self):
+        """Ensure mapping exists without expensive work during normal test-time runs."""
+        if self.next_char_map is not None:
+            return
+
+        # Fast path: load precomputed mapping from JSON file.
+        if self._load_mapping_from_json():
+            return
+
+        # Compatibility fallback for older checkpoints: build once from cached text.
+        text = self._get_mapping_text()
+        self._build_next_char_mapping_from_text(text)
+        self._save_mapping_to_json()
+
+    def _predict_from_last_char(self, last_char):
+        """Predict top-3 next characters using the dictionary mapping."""
+        self._ensure_mapping_loaded()
+
+        disallowed = {'\n', '\r', '\t'}
+        fallback_chars = ['e', 't', 'a', ' ', 'o', 'i', 'n', 's', 'r', 'h']
+        top_chars = []
+        seen = set()
+
+        def add_candidates(candidates):
+            for char in candidates:
+                if char in disallowed:
+                    continue
+                if char not in seen:
+                    top_chars.append(char)
+                    seen.add(char)
+                if len(top_chars) >= 3:
+                    return
+
+        if last_char:
+            add_candidates(self.next_char_map.get(last_char, []))
+            if len(top_chars) < 3:
+                add_candidates(self.next_char_map_casefold.get(last_char.casefold(), []))
+
+        if len(top_chars) < 3:
+            add_candidates(self.global_next_chars if self.global_next_chars else [])
+
+        if len(top_chars) < 3:
+            add_candidates(fallback_chars)
+
+        pred = ''.join(top_chars[:3])
+        pred = pred.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+        return pred.ljust(3, ' ')[:3]
 
     @classmethod
     def load_training_data(cls, work_dir='work', use_cache=True, max_examples=100000, hf_token=None):
@@ -189,6 +310,9 @@ class MyModel:
         # Build vocabulary
         print("Building vocabulary...")
         self.build_vocab(text)
+
+        # Build and cache dictionary mapping during training so test-time is fast.
+        self._build_next_char_mapping_from_text(text)
         
         # Convert text to indices (replace newlines with spaces)
         print("Converting text to indices...")
@@ -290,14 +414,13 @@ class MyModel:
 
     def run_pred(self, data):
         """Generate predictions for test data"""
-        # Checkpoint 2: disable LSTM predictions and always return the top
-        # three most frequent English letters for speed and simplicity.
-        # NOTE: The original LSTM inference block is left commented below
-        # in case you want to restore it later.
-        most_frequent = "eta"
+        # Checkpoint 2: use dictionary mapping based on the last character.
+        # This avoids NN inference and is Unicode-safe.
         preds = []
-        for _ in tqdm(data, desc="Generating predictions"):
-            preds.append(most_frequent)
+        for inp in data:
+            inp_clean = inp.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
+            last_char = inp_clean[-1] if len(inp_clean) > 0 else ''
+            preds.append(self._predict_from_last_char(last_char))
         return preds
 
         # self.model.eval()
@@ -377,11 +500,17 @@ class MyModel:
 
     def save(self, work_dir):
         """Save model and vocabulary"""
+        self.work_dir = work_dir
+        self._save_mapping_to_json()
+
         checkpoint = {
             'model_state_dict': self.model.state_dict(),
             'char_to_idx': self.char_to_idx,
             'idx_to_char': self.idx_to_char,
             'vocab_size': self.vocab_size,
+            'next_char_map': self.next_char_map,
+            'next_char_map_casefold': self.next_char_map_casefold,
+            'global_next_chars': self.global_next_chars,
             'model_config': {
                 'embedding_dim': self.model.embedding_dim,
                 'hidden_dim': self.model.hidden_dim,
@@ -431,10 +560,26 @@ class MyModel:
             char_to_idx=checkpoint['char_to_idx'],
             idx_to_char=checkpoint['idx_to_char'],
             model=model,
-            device=device
+            device=device,
+            work_dir=work_dir
         )
+
+        instance.next_char_map = checkpoint.get('next_char_map')
+        instance.next_char_map_casefold = checkpoint.get('next_char_map_casefold')
+        instance.global_next_chars = checkpoint.get('global_next_chars')
+
+        if instance.next_char_map is None:
+            instance._ensure_mapping_loaded()
         
         print(f"Model loaded from {checkpoint_path}")
+        return instance
+
+    @classmethod
+    def load_fast(cls, work_dir):
+        """Load only dictionary resources for fast test-time prediction."""
+        instance = cls(work_dir=work_dir)
+        instance._ensure_mapping_loaded()
+        print(f"Fast dictionary predictor loaded from {work_dir}")
         return instance
 
 
@@ -473,8 +618,8 @@ if __name__ == '__main__':
         print('Saving model')
         model.save(args.work_dir)
     elif args.mode == 'test':
-        print('Loading model')
-        model = MyModel.load(args.work_dir)
+        print('Loading fast dictionary predictor')
+        model = MyModel.load_fast(args.work_dir)
         print('Loading test data from {}'.format(args.test_data))
         test_data = MyModel.load_test_data(args.test_data)
         print('Making predictions')

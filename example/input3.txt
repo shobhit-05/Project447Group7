@@ -1,0 +1,5 @@
+Write a Python function to compute fibonacci numbers using recursion. def fib(n): 
+I studied for 8 hours today and my finals are next week. I feel 
+Seattle weather forecast for tomorrow will likely be 
+Explain backpropagation in simple terms: Backpropagation is 
+Customer support reply (polite, short): Hi, I can’t log into my account because 

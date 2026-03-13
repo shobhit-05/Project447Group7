@@ -1,5 +1,180 @@
-Write a Python function to compute fibonacci numbers using recursion. def fib(n): 
-I studied for 8 hours today and my finals are next week. I feel 
-Seattle weather forecast for tomorrow will likely be 
-Explain backpropagation in simple terms: Backpropagation is 
-Customer support reply (polite, short): Hi, I can’t log into my account because 
+URL-like text: https:/
+Operator sequence: a!=b && c==d || e<=f; watch punctuation trans
+Emoji test: 🚀 launch, 🔋 battery, 🛰️ station
+End-user text: I'm locked out :( can yo
+URL-like text: 
+Status ✅: pipeli
+Quoted speech: "Plea
+Markdown-ish: **bold**, _italic_, and 
+End-user text: I'm locked out :( can you r
+Mixed scripts: hello नमस्ते 你好 مرحبا Привет together 
+Percentages rose from 12% to 38% after retraining on fres
+Hyphenation check: state-of-the
+Operator sequence: a!=b &
+Case sensitivity check: NASA, nasa, 
+Math symbols: α + β = γ, and 3
+File path sample: /job/src/predict.sh should write output/pred.txt correctl
+Quick note -> cache_hit_rate=97.3%, p95_latency=11.8ms, retries=
+Brackets and braces: [alpha] (beta) {gamma} <delt
+Markdown-ish
+Quoted
+File path sample: /job/src/predict.sh sh
+Currency mix: $19.9
+Mixed scripts: hello नमस्ते 你好 مرحبا Привет together i
+Curre
+I typed 'naive' but expected 'naïve'; normalization c
+Spacing test: multiple   spaces should not break character-le
+End-user text: I'm locked out :( can you reset my password 
+End-user text: I'm locked out :( can you reset my passwor
+Quoted speech: "Please don't panic, just rerun the grader
+Status ✅: pipeline finished in 00:42:17,
+Quoted speech: "Please
+Math symbols: α + β = γ, and 3×7=21
+Status ✅: pipeline finished in 00:42:17, zero critical
+Quoted speech: "Please don't panic, just rerun the grader script.
+File path sample: /job/src/predict.sh should write output/p
+File path sample: /job/src/predict.sh should 
+Operator
+CSV-li
+Mixed scripts: hello नमस्ते 你好 مرحبا Привет together
+Quoted speech: "Please don't panic, just rerun the grader s
+Math symbols: α + β = γ
+Timestamp log: 2026
+Hyphenation check: state-of-the-art models may still
+Hyphenation check: state-of-the-art m
+Brackets and braces: [alpha] (beta) {gamma} <delta>
+Brackets a
+Timestamp log: 2026-03-13T15:04:05Z I
+I typed 'n
+Spacing test:
+Case sensitivity check: NASA, nasa, NaSa sh
+Spacing test: multiple   spaces should not break character-level p
+Brackets and brace
+Currency mix: $19.99, €17, ¥2400, ₹35
+Status ✅: pipeline finished in 00:
+I typed 'naive' but expected 'naïve'; normalization can
+Markdown-ish: **bold**, _italic_, and `code` tokens appear in
+File path sample: /job/src/predict.sh should write output/pred.txt corre
+Emoji test: 🚀 launch, 🔋 battery, 🛰️ station, 🧪 experiment,
+Quick note -> cache_
+Markdown-ish: **bold**, _italic_, and `code` tokens appear in d
+Case 
+URL-like text: https://example.org/api/v1/s
+Quick no
+Operator sequence: a!=b && c==d || e<=f; watch punctuation 
+Emoji test: 🚀 launch, 🔋 battery, 🛰️ station, 🧪 experiment, ✅ 
+End-user text: I'm locked out :( can you reset my password ASA
+URL-like text: https://example.org/api/v1/status?verbose=t
+Percentages rose from 12% to 38
+File path sample
+File path sample: /job/src/
+URL-like text: https://example.org/api/v1/stat
+Math sym
+Timestamp log: 2026-03-13T15:04
+File
+I typed 'naive' but expected 'naïve'; normalizati
+Hyphenation check: state-of-the-art models ma
+Emoji test: 🚀 launch, 🔋
+End-user text: I'm locked out :( can you reset my password ASAP
+Spacing test: multiple   spaces should not break
+Emoji test: 🚀 launch, 🔋 batt
+Case sensiti
+Currency mix:
+CSV-like row: id,lang,score,time_ms -> 4
+Operator se
+Emoji test: 🚀 launch, 🔋 battery
+Mixed scripts: hello नमस्ते 你好 مرحبا Привет
+CSV-like row: id,lang
+Timestamp log: 2026-03-1
+Timestamp log: 2026-03-13T15:04:05Z
+Mixed scripts: hello नमस्ते 你好 مرحبا П
+Percentages rose
+Operator sequence: a!=b && c==d || e<=f
+End-user text: I'm locked out
+File path sample: /job/src/predict.sh should write ou
+Hyphenation check: state-of-the-art models 
+Quo
+Spacing test: multiple   spaces
+Status ✅: pipeline finished in 00:42:1
+CSV-like row: id,lang,score,time_ms 
+File path sample: /job/src/predic
+CSV-like
+Hyphenation check: state-of-the-art models
+Quick note -> cache_hit_rate=97.3%,
+Status ✅: pipeline finishe
+CSV-like row: id,l
+I typed 'naive' bu
+Timestamp log: 2026-03-13T15:04:05Z INFO model_loade
+I typed 'naive' but expected 'naïve'; normalization can change ou
+I typed 'naive' but expected
+I typed 'naive' but expected 'naï
+Brackets
+Markdown-ish: **bold**, _it
+Spacing test: multiple   spaces should not 
+Currency mix: $19.99, €17, ¥24
+CSV-like row: id,lang,score,time_ms -> 42,en,0.8
+Math symbols: α + β = γ, and 3×7=21 while 2^5=
+Currency mix
+Emoji test: 🚀 launch
+I typed 'naive' but expected 'naïve';
+Markdown-ish: **bold**, _italic_,
+Timestamp log: 2026-03-13T15
+Quoted speech: "Please don't panic, just rerun 
+Markdown-ish: **bold**, _italic_, 
+I typed
+Quick note -> cache_hit_rate=97.3%, p95_latency=11.8ms, retrie
+Timestamp log: 2026-0
+Markdown-ish: **bold**, _italic_, and `code` toke
+I typed 'naive' but expected 'naïve'
+Quoted speech: "Please don't panic, just rer
+End-user text: I'm locked out :( can 
+Currency mix: $19.99, €17, ¥2400, ₹350, ₩12
+Hyphenation check: state-of-the-art models may still miss r
+End-user text: I'm l
+I typed 'naive' but ex
+Math symbols: α + β = γ, and 3×7=21 while
+End-user text: I'm locked out :( can you res
+File path sample: /job/src/predict.sh should write output/pred
+Hyphenat
+Brackets and braces: [alpha] (beta) {gamma
+Status ✅: pipeline finished in
+Bracke
+Case sensitivity check: NASA, na
+Emoji test: 🚀 launch, 
+Status ✅: pipeline finished in 00:42:17, zero critical 
+URL-l
+Currency mix: $19.99, €17, ¥2400, ₹3
+Hyphenation check: state-of-the-art models may still miss rar
+Quoted speech: "Please don't panic, just rerun the grader scrip
+End-user text: I'm locked out :( can you reset my
+Emoji test: 🚀 launch, 🔋 battery, 🛰
+Emoji test: 🚀 launch, 🔋 battery, 🛰️ station, 🧪 exper
+Currency mix: $19.99, €17, ¥2400, ₹350, ₩1200
+Status ✅: pipeline finished in 00:42:
+CSV-like row: id,lang,score,time_ms -> 42,en,
+Markdown-ish: **bold**, _italic_, and `code` tokens appear in doc
+Emoji test: 🚀 la
+Percentages
+Quoted speech: "Please don't panic, just rerun the grader sc
+Markdown-ish: **bold**, _italic_, and `code`
+Percentage
+End-user text: I'm locked out :( can you
+File path sample:
+M
+I typed 'naive' but expected 'naïve'; 
+Markdown-ish: **bold**
+Status ✅: pipeline finished in 
+Brackets and braces: [alpha] (beta) {gamma} <delta> keep parsing stabl
+Mixed scripts: hello नमस्ते 你好 مرحبا Привет toge
+Currency mix: $1
+Math symbols: α 
+Hyphenation check
+Mixed scripts: hello नमस्ते 你好 مرح
+Markdown-ish: **bold**, _italic_, and `c
+I typed 'naive' but expected 'naïve'; normalization can c
+Operator sequence: a!=b && c==d || e<=f; watch pu
+Timestamp log: 2026-03-13T15:04:05Z INFO model
+Quoted speech: "Please don't panic,
+Hyphenation check: state
+Currency mix: $19.99, €17, ¥2400, ₹350, ₩12000
+Quick note -> cache_hit_rate=97.3

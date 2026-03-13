@@ -79,6 +79,8 @@ class MyModel:
         self.next_char_map = None
         self.next_char_map_casefold = None
         self.global_next_chars = None
+        self.trigram_bigram_map = None
+        self.trigram_global_next_chars = None
 
     def _get_mapping_text(self):
         """Load text used to build next-character mapping."""
@@ -161,9 +163,126 @@ class MyModel:
         self._build_next_char_mapping_from_text(text)
         self._save_mapping_to_json()
 
-    def _predict_from_last_char(self, last_char):
-        """Predict top-3 next characters using the dictionary mapping."""
+    def _load_trigram_map_from_json(self):
+        """Load precomputed trigram bigram->next map."""
+        trigram_path = os.path.join(self.work_dir, 'trigram_bigram_map.json')
+        if not os.path.exists(trigram_path):
+            return False
+        try:
+            with open(trigram_path, 'r', encoding='utf-8') as f:
+                payload = json.load(f)
+            self.trigram_bigram_map = payload.get('trigram_bigram_map', {})
+            self.trigram_global_next_chars = payload.get('trigram_global_next_chars', [])
+            return True
+        except Exception:
+            return False
+
+    def _build_trigram_map_from_top_json(self, top_payload):
+        """Build a fast bigram->next-char prior from wooorm/trigrams top.json."""
+        # Approximate language-popularity weights; skew toward major languages.
+        popular_codes = {
+            'eng': 1.00,
+            'cmn': 0.95,
+            'zho': 0.95,
+            'spa': 0.85,
+            'hin': 0.82,
+            'arb': 0.78,
+            'ben': 0.72,
+            'por': 0.68,
+            'rus': 0.66,
+            'urd': 0.64,
+            'ind': 0.63,
+            'deu_1996': 0.60,
+            'deu_1901': 0.60,
+            'jpn': 0.58,
+            'kor': 0.56,
+            'fra': 0.55,
+            'ita': 0.50,
+            'tur': 0.48,
+            'vie': 0.46,
+            'tam': 0.45,
+            'tel': 0.44,
+            'mar': 0.42,
+            'swh': 0.40,
+            'pol': 0.37,
+            'ukr': 0.35,
+            'nld': 0.33,
+            'ron': 0.31,
+            'ces': 0.29,
+            'ell': 0.28,
+            'tha': 0.27,
+            'pes_1': 0.26,
+            'pes_2': 0.26,
+        }
+
+        next_by_bigram = defaultdict(Counter)
+        global_next = Counter()
+
+        for code, weight in popular_codes.items():
+            trigram_counts = top_payload.get(code)
+            if not trigram_counts:
+                continue
+
+            for trigram, count in trigram_counts.items():
+                if not trigram or len(trigram) < 3:
+                    continue
+                tri = trigram.casefold()
+                bigram = tri[:2]
+                next_char = tri[2]
+                if next_char in ['\n', '\r', '\t']:
+                    continue
+
+                weighted = weight * float(count)
+                next_by_bigram[bigram][next_char] += weighted
+                global_next[next_char] += weighted
+
+        self.trigram_bigram_map = {
+            bg: [ch for ch, _ in counter.most_common()]
+            for bg, counter in next_by_bigram.items()
+        }
+        self.trigram_global_next_chars = [ch for ch, _ in global_next.most_common()]
+
+    def _ensure_trigram_loaded(self):
+        """Ensure trigram priors are available, downloading once if needed."""
+        if self.trigram_bigram_map is not None:
+            return
+
+        if self._load_trigram_map_from_json():
+            return
+
+        trigram_url = 'https://raw.githubusercontent.com/wooorm/trigrams/main/lib/top.json'
+        trigram_json_path = os.path.join(self.work_dir, 'trigrams_top.json')
+        trigram_map_path = os.path.join(self.work_dir, 'trigram_bigram_map.json')
+
+        try:
+            if not os.path.exists(trigram_json_path):
+                with urllib.request.urlopen(trigram_url, timeout=20) as response:
+                    payload = response.read().decode('utf-8')
+                with open(trigram_json_path, 'w', encoding='utf-8') as f:
+                    f.write(payload)
+
+            with open(trigram_json_path, 'r', encoding='utf-8') as f:
+                top_payload = json.load(f)
+
+            self._build_trigram_map_from_top_json(top_payload)
+            with open(trigram_map_path, 'w', encoding='utf-8') as f:
+                json.dump(
+                    {
+                        'trigram_bigram_map': self.trigram_bigram_map,
+                        'trigram_global_next_chars': self.trigram_global_next_chars,
+                    },
+                    f,
+                    ensure_ascii=False,
+                )
+        except Exception:
+            # If download or parsing fails, keep empty trigram priors.
+            self.trigram_bigram_map = {}
+            self.trigram_global_next_chars = []
+
+    def _predict_from_context(self, context):
+        """Predict top-3 next characters using trigram + dictionary backoff."""
         self._ensure_mapping_loaded()
+        self._ensure_trigram_loaded()
 
         disallowed = {'\n', '\r', '\t'}
         fallback_chars = ['e', 't', 'a', ' ', 'o', 'i', 'n', 's', 'r', 'h']
@@ -180,10 +299,20 @@ class MyModel:
                 if len(top_chars) >= 3:
                     return
 
-        if last_char:
+        context = context or ''
+
+        if len(context) >= 2:
+            bigram = context[-2:].casefold()
+            add_candidates(self.trigram_bigram_map.get(bigram, []))
+
+        last_char = context[-1] if context else ''
+        if last_char and len(top_chars) < 3:
             add_candidates(self.next_char_map.get(last_char, []))
             if len(top_chars) < 3:
                 add_candidates(self.next_char_map_casefold.get(last_char.casefold(), []))
+
+        if len(top_chars) < 3:
+            add_candidates(self.trigram_global_next_chars if self.trigram_global_next_chars else [])
 
         if len(top_chars) < 3:
             add_candidates(self.global_next_chars if self.global_next_chars else [])
@@ -414,13 +543,11 @@ class MyModel:
 
     def run_pred(self, data):
         """Generate predictions for test data"""
-        # Checkpoint 2: use dictionary mapping based on the last character.
-        # This avoids NN inference and is Unicode-safe.
+        # Fast path: trigram-informed backoff plus last-character dictionary map.
         preds = []
         for inp in data:
             inp_clean = inp.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
-            last_char = inp_clean[-1] if len(inp_clean) > 0 else ''
-            preds.append(self._predict_from_last_char(last_char))
+            preds.append(self._predict_from_context(inp_clean))
         return preds
 
         # self.model.eval()
